@@ -24,6 +24,14 @@ export default function DocumentsPage() {
 
   const [deleteItem, setDeleteItem] = useState(null);
   const [editItem, setEditItem] = useState(null);
+  const [previewItem, setPreviewItem] = useState(null);
+
+  const [popup, setPopup] = useState({
+    show: false,
+    type: "success",
+    title: "",
+    message: "",
+  });
 
   const [editForm, setEditForm] = useState({
     documentNumber: "",
@@ -34,6 +42,19 @@ export default function DocumentsPage() {
   useEffect(() => {
     loadDocuments();
   }, []);
+
+  function showPopup(type, title, message) {
+    setPopup({ show: true, type, title, message });
+  }
+
+  function closePopup() {
+    setPopup({
+      show: false,
+      type: "success",
+      title: "",
+      message: "",
+    });
+  }
 
   async function loadDocuments() {
     try {
@@ -63,7 +84,7 @@ export default function DocumentsPage() {
       }
     } catch (error) {
       console.error(error);
-      alert("Failed to load documents");
+      showPopup("error", "Failed to Load", "Unable to load documents.");
     } finally {
       setLoading(false);
     }
@@ -83,7 +104,6 @@ export default function DocumentsPage() {
     if (!dateValue) return "Unknown Month";
 
     const date = new Date(dateValue);
-
     if (Number.isNaN(date.getTime())) return "Unknown Month";
 
     return date.toLocaleDateString("en-IN", {
@@ -116,9 +136,15 @@ export default function DocumentsPage() {
         client: item.clientSnapshot,
         settings,
       });
+
+      showPopup(
+        "success",
+        "PDF Downloaded",
+        `${item.documentNumber || "Document"} downloaded successfully.`
+      );
     } catch (error) {
       console.error(error);
-      alert("Failed to download PDF");
+      showPopup("error", "Download Failed", "Failed to download PDF.");
     } finally {
       setDownloadingId(null);
     }
@@ -151,10 +177,14 @@ export default function DocumentsPage() {
       setEditItem(null);
       await loadDocuments();
 
-      alert("Document updated successfully");
+      showPopup(
+        "success",
+        "Document Updated",
+        `${editForm.documentNumber} updated successfully.`
+      );
     } catch (error) {
       console.error(error);
-      alert("Failed to update document");
+      showPopup("error", "Update Failed", "Failed to update document.");
     }
   }
 
@@ -162,105 +192,156 @@ export default function DocumentsPage() {
     if (!deleteItem) return;
 
     try {
+      const deletedNumber = deleteItem.documentNumber;
+
       await deleteDoc(doc(db, "documents", deleteItem.id));
 
       setDeleteItem(null);
       await loadDocuments();
 
-      alert("Document deleted successfully");
+      showPopup(
+        "success",
+        "Document Deleted",
+        `${deletedNumber} deleted successfully.`
+      );
     } catch (error) {
       console.error(error);
-      alert("Failed to delete document");
+      showPopup("error", "Delete Failed", "Failed to delete document.");
     }
   }
 
   return (
-    <div>
-      <div className="card">
-        <h1>Documents List</h1>
-        <p>View saved quotations, proforma invoices and invoices.</p>
-      </div>
+    <div className="documents-page">
+      <div className="documents-hero">
+        <div>
+          <p className="documents-eyebrow">Document Management</p>
+          <h1>Documents List</h1>
+          <p>
+            View, preview, download, edit and manage saved quotations, proforma
+            invoices and invoices.
+          </p>
+        </div>
 
-      <div className="card">
-        <div className="doc-tabs">
-          {["Quotation", "Proforma Invoice", "Invoice"].map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className={activeTab === tab ? "doc-tab active" : "doc-tab"}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab}
-            </button>
-          ))}
+        <div className="documents-count-card">
+          <span>Total Documents</span>
+          <strong>{documents.length}</strong>
         </div>
       </div>
 
-      <div className="card">
+      <div className="documents-tabs-card">
+        <div className="doc-tabs">
+          {["Quotation", "Proforma Invoice", "Invoice"].map((tab) => {
+            const count = documents.filter(
+              (item) => item.documentType === tab
+            ).length;
+
+            return (
+              <button
+                key={tab}
+                type="button"
+                className={activeTab === tab ? "doc-tab active" : "doc-tab"}
+                onClick={() => setActiveTab(tab)}
+              >
+                <span>{tab}</span>
+                <small>{count}</small>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="documents-content-card">
         {loading ? (
-          <p>Loading documents...</p>
+          <div className="empty-state">
+            <div className="loader-dot" />
+            <h3>Loading documents...</h3>
+            <p>Please wait while we fetch your saved documents.</p>
+          </div>
         ) : filteredDocuments.length === 0 ? (
-          <p>No {activeTab} documents found.</p>
+          <div className="empty-state">
+            <div className="empty-icon">📄</div>
+            <h3>No {activeTab} Found</h3>
+            <p>Create a new {activeTab.toLowerCase()} to see it here.</p>
+          </div>
         ) : (
           Object.entries(groupedDocuments).map(([month, monthDocs]) => (
             <div key={month} className="month-section">
-              <h2 className="month-title">{month}</h2>
+              <div className="month-header">
+                <h2>{month}</h2>
+                <span>{monthDocs.length} Documents</span>
+              </div>
 
-              <div className="table-wrap">
-                <table>
+              <div className="modern-table-wrap">
+                <table className="modern-table documents-table">
                   <thead>
                     <tr>
-                      <th>Type</th>
-                      <th>No</th>
+                      <th>Document Details</th>
                       <th>Date</th>
                       <th>Client</th>
-                      <th>Total</th>
-                      <th>PDF</th>
-                      <th>Edit</th>
-                      <th>Delete</th>
+                      <th className="text-right">Total</th>
+                      <th className="text-right">Actions</th>
                     </tr>
                   </thead>
 
                   <tbody>
                     {monthDocs.map((item) => (
                       <tr key={item.id}>
-                        <td>{item.documentType || "-"}</td>
-                        <td>{item.documentNumber || "-"}</td>
+                        <td>
+                          <div className="doc-info">
+                            <strong>{item.documentNumber || "-"}</strong>
+                            <span>{item.documentType || "-"}</span>
+                          </div>
+                        </td>
+
                         <td>{item.date || "-"}</td>
-                        <td>{getClientName(item.clientSnapshot)}</td>
-                        <td>₹ {formatINR(item.grandTotal || 0)}</td>
 
                         <td>
-                          <button
-                            type="button"
-                            className="btn small"
-                            disabled={downloadingId === item.id}
-                            onClick={() => handleDownload(item)}
-                          >
-                            {downloadingId === item.id
-                              ? "Downloading..."
-                              : "Download"}
-                          </button>
+                          <div className="client-name">
+                            {getClientName(item.clientSnapshot)}
+                          </div>
+                        </td>
+
+                        <td className="text-right">
+                          <strong className="amount-text">
+                            ₹ {formatINR(item.grandTotal || 0)}
+                          </strong>
                         </td>
 
                         <td>
-                          <button
-                            type="button"
-                            className="btn small secondary"
-                            onClick={() => openEditPopup(item)}
-                          >
-                            Edit
-                          </button>
-                        </td>
+                          <div className="action-buttons right">
+                            <button
+                              type="button"
+                              className="icon-btn secondary"
+                              onClick={() => setPreviewItem(item)}
+                            >
+                              Preview
+                            </button>
 
-                        <td>
-                          <button
-                            type="button"
-                            className="btn small danger"
-                            onClick={() => setDeleteItem(item)}
-                          >
-                            Delete
-                          </button>
+                            <button
+                              type="button"
+                              className="icon-btn primary"
+                              disabled={downloadingId === item.id}
+                              onClick={() => handleDownload(item)}
+                            >
+                              {downloadingId === item.id ? "..." : "PDF"}
+                            </button>
+
+                            <button
+                              type="button"
+                              className="icon-btn secondary"
+                              onClick={() => openEditPopup(item)}
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              className="icon-btn danger"
+                              onClick={() => setDeleteItem(item)}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -272,13 +353,180 @@ export default function DocumentsPage() {
         )}
       </div>
 
+      {previewItem && (
+        <div className="modal-overlay">
+          <div className="modal-card modern-modal preview-modal">
+            <div className="preview-header">
+              <div>
+                <p className="documents-eyebrow">Preview</p>
+                <h2>{previewItem.documentType}</h2>
+                <p className="modal-subtitle">
+                  {previewItem.documentNumber || "-"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setPreviewItem(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="preview-summary-grid">
+              <div>
+                <span>Date</span>
+                <strong>{previewItem.date || "-"}</strong>
+              </div>
+
+              <div>
+                <span>Client</span>
+                <strong>{getClientName(previewItem.clientSnapshot)}</strong>
+              </div>
+
+              <div>
+                <span>Place of Supply</span>
+                <strong>{previewItem.placeOfSupply || "Karnataka"}</strong>
+              </div>
+
+              <div>
+                <span>Total</span>
+                <strong>₹ {formatINR(previewItem.grandTotal || 0)}</strong>
+              </div>
+            </div>
+
+            <div className="preview-section">
+              <h3>Items / Services</h3>
+
+              <div className="modern-table-wrap">
+                <table className="modern-table preview-items-table">
+                  <thead>
+                    <tr>
+                      <th>Remark</th>
+                      <th>Item</th>
+                      <th>HSN</th>
+                      <th>Qty</th>
+                      <th className="text-right">Rate</th>
+                      <th className="text-right">Amount</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {(previewItem.items || []).map((item, index) => (
+                      <tr key={index}>
+                        <td>{item.remark || "-"}</td>
+                        <td>{item.itemName || "-"}</td>
+                        <td>{item.hsnCode || "-"}</td>
+                        <td>{item.quantity || 0}</td>
+                        <td className="text-right">
+                          ₹ {formatINR(item.rate || 0)}
+                        </td>
+                        <td className="text-right">
+                          <strong>₹ {formatINR(item.amount || 0)}</strong>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {previewItem.quotationMode !== "options" && (
+              <div className="preview-total-box">
+                <div className="summary-line">
+                  <span>Subtotal</span>
+                  <strong>₹ {formatINR(previewItem.subtotal || 0)}</strong>
+                </div>
+
+                <div className="summary-line">
+                  <span>Discount</span>
+                  <strong>₹ {formatINR(previewItem.discount || 0)}</strong>
+                </div>
+
+                <div className="summary-line">
+                  <span>Base Total After Discount</span>
+                  <strong>
+                    ₹ {formatINR(previewItem.baseTotalAfterDiscount || 0)}
+                  </strong>
+                </div>
+
+                {previewItem.documentType !== "Quotation" && (
+                  <div className="summary-line">
+                    <span>GST (18%)</span>
+                    <strong>₹ {formatINR(previewItem.gstTotal || 0)}</strong>
+                  </div>
+                )}
+
+                {previewItem.enableAdvanceAmount && (
+                  <div className="summary-line">
+                    <span>Advance Amount</span>
+                    <strong>
+                      ₹ {formatINR(previewItem.advanceAmount || 0)}
+                    </strong>
+                  </div>
+                )}
+
+                <div className="summary-line total">
+                  <span>
+                    {previewItem.enableAdvanceAmount
+                      ? "Balance Amount"
+                      : "Grand Total"}
+                  </span>
+                  <strong>
+                    ₹{" "}
+                    {formatINR(
+                      previewItem.enableAdvanceAmount
+                        ? previewItem.balanceAmount || 0
+                        : previewItem.grandTotal || 0
+                    )}
+                  </strong>
+                </div>
+              </div>
+            )}
+
+            {previewItem.amountInWords && (
+              <div className="preview-note-box">
+                <span>Amount In Words</span>
+                <p>{previewItem.amountInWords}</p>
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setPreviewItem(null)}
+              >
+                Close
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                disabled={downloadingId === previewItem.id}
+                onClick={() => handleDownload(previewItem)}
+              >
+                {downloadingId === previewItem.id
+                  ? "Downloading..."
+                  : "Download PDF"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {deleteItem && (
         <div className="modal-overlay">
-          <div className="modal-card">
+          <div className="modal-card modern-modal">
+            <div className="modal-icon danger-icon">!</div>
+
             <h2>Delete Document?</h2>
+
             <p>
               Are you sure you want to delete{" "}
-              <strong>{deleteItem.documentNumber}</strong>?
+              <strong>{deleteItem.documentNumber}</strong>? This action cannot
+              be undone.
             </p>
 
             <div className="modal-actions">
@@ -304,8 +552,12 @@ export default function DocumentsPage() {
 
       {editItem && (
         <div className="modal-overlay">
-          <div className="modal-card">
+          <div className="modal-card modern-modal edit-modal">
             <h2>Edit Document</h2>
+
+            <p className="modal-subtitle">
+              Update basic document information.
+            </p>
 
             <div className="form-group">
               <label>Document Number</label>
@@ -358,6 +610,31 @@ export default function DocumentsPage() {
 
               <button type="button" className="btn" onClick={handleEditSave}>
                 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {popup.show && (
+        <div className="modal-overlay">
+          <div className="modal-card modern-modal success-modal">
+            <div
+              className={
+                popup.type === "success"
+                  ? "modal-icon success-icon"
+                  : "modal-icon danger-icon"
+              }
+            >
+              {popup.type === "success" ? "✓" : "!"}
+            </div>
+
+            <h2>{popup.title}</h2>
+            <p>{popup.message}</p>
+
+            <div className="modal-actions center">
+              <button type="button" className="btn" onClick={closePopup}>
+                Close
               </button>
             </div>
           </div>

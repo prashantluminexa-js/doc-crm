@@ -23,7 +23,6 @@ export default function Navbar() {
       <div className="nav-links">
         <Link href="/">Dashboard</Link>
         <Link href="/clients">Clients</Link>
-        <Link href="/create-document">Create Document</Link>
         <Link href="/documents">Documents</Link>
         <Link href="/settings">Settings</Link>
         <button className="logout-btn" onClick={handleLogout}>

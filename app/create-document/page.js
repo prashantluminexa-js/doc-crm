@@ -53,6 +53,10 @@ const emptyItem = {
   optionDiscount: "",
 };
 
+function roundAmount(value) {
+  return Math.round(Number(value || 0));
+}
+
 function getCounterId(type) {
   if (type === "Quotation") return "quotation";
   if (type === "Proforma Invoice") return "proforma_invoice";
@@ -102,11 +106,22 @@ export default function CreateDocumentPage() {
   const [loading, setLoading] = useState(false);
 
   const [successPopup, setSuccessPopup] = useState(false);
+  const [previewPopup, setPreviewPopup] = useState(false);
   const [savedDocumentNumber, setSavedDocumentNumber] = useState("");
+
+  const [popup, setPopup] = useState({
+    show: false,
+    type: "success",
+    title: "",
+    message: "",
+  });
 
   const [form, setForm] = useState({
     documentType: "Quotation",
     quotationMode: "total",
+    clientMode: "saved",
+    manualClientName: "",
+    manualClientAddress: "",
     documentNumber: "",
     date: new Date().toISOString().slice(0, 10),
     clientId: "",
@@ -123,8 +138,21 @@ export default function CreateDocumentPage() {
 
   const isQuotation = form.documentType === "Quotation";
   const isInvoice = form.documentType === "Invoice";
-
   const isOptionsQuotation = isQuotation && form.quotationMode === "options";
+  const isManualQuotation = isQuotation && form.clientMode === "manual";
+
+  function showPopup(type, title, message) {
+    setPopup({ show: true, type, title, message });
+  }
+
+  function closePopup() {
+    setPopup({
+      show: false,
+      type: "success",
+      title: "",
+      message: "",
+    });
+  }
 
   useEffect(() => {
     async function loadData() {
@@ -172,23 +200,21 @@ export default function CreateDocumentPage() {
       const rate = Number(item.rate || 0);
       const optionDiscount = Number(item.optionDiscount || 0);
 
+      const rawAmount = quantity * rate;
+      const optionAmount = Math.max(rawAmount - optionDiscount, 0);
+
       return {
         ...item,
         gstPercent: isQuotation ? 0 : Number(item.gstPercent || 0),
         amount: isOptionsQuotation
-          ? Math.max(quantity * rate - optionDiscount, 0)
-          : quantity * rate,
+          ? roundAmount(optionAmount)
+          : roundAmount(rawAmount),
       };
     });
 
     if (isOptionsQuotation) {
-      const items = itemsForCalculation.map((item) => ({
-        ...item,
-        amount: Number(item.amount || 0),
-      }));
-
       return {
-        items,
+        items: itemsForCalculation,
         subtotal: 0,
         discount: 0,
         baseTotalAfterDiscount: 0,
@@ -197,11 +223,24 @@ export default function CreateDocumentPage() {
       };
     }
 
-    return calculateDocument(
+    const result = calculateDocument(
       itemsForCalculation,
       Number(form.discount || 0),
       form.discountPercent
     );
+
+    return {
+      ...result,
+      subtotal: roundAmount(result.subtotal),
+      discount: roundAmount(result.discount),
+      baseTotalAfterDiscount: roundAmount(result.baseTotalAfterDiscount),
+      gstTotal: roundAmount(result.gstTotal),
+      grandTotal: roundAmount(result.grandTotal),
+      items: result.items.map((item) => ({
+        ...item,
+        amount: roundAmount(item.amount),
+      })),
+    };
   }, [
     form.items,
     form.discount,
@@ -211,9 +250,11 @@ export default function CreateDocumentPage() {
   ]);
 
   const advanceAmount =
-    isInvoice && form.enableAdvanceAmount ? Number(form.advanceAmount || 0) : 0;
+    isInvoice && form.enableAdvanceAmount ? roundAmount(form.advanceAmount) : 0;
 
-  const balanceAmount = Math.max(calculation.grandTotal - advanceAmount, 0);
+  const balanceAmount = roundAmount(
+    Math.max(calculation.grandTotal - advanceAmount, 0)
+  );
 
   useEffect(() => {
     if (isOptionsQuotation) {
@@ -234,6 +275,26 @@ export default function CreateDocumentPage() {
 
   const selectedClient = clients.find((client) => client.id === form.clientId);
 
+  const manualClientSnapshot = {
+    billingName: form.manualClientName,
+    companyName: form.manualClientName,
+    contactName: form.manualClientName,
+    billingAddress: form.manualClientAddress,
+    companyAddress: form.manualClientAddress,
+    isManualClient: true,
+  };
+
+  const finalClient = isManualQuotation ? manualClientSnapshot : selectedClient;
+
+  function getClientDisplayName() {
+    return (
+      finalClient?.billingName ||
+      finalClient?.companyName ||
+      finalClient?.contactName ||
+      "-"
+    );
+  }
+
   function handleChange(e) {
     const { name, value, type, checked } = e.target;
 
@@ -244,6 +305,9 @@ export default function CreateDocumentPage() {
         ...form,
         documentType: nextType,
         quotationMode: "total",
+        clientMode: "saved",
+        manualClientName: "",
+        manualClientAddress: "",
         documentNumber: "",
         enableAdvanceAmount: false,
         advanceAmount: "",
@@ -261,6 +325,18 @@ export default function CreateDocumentPage() {
         quotationMode: value,
         discount: "",
         discountPercent: "",
+      });
+
+      return;
+    }
+
+    if (name === "clientMode") {
+      setForm({
+        ...form,
+        clientMode: value,
+        clientId: "",
+        manualClientName: "",
+        manualClientAddress: "",
       });
 
       return;
@@ -302,15 +378,46 @@ export default function CreateDocumentPage() {
     });
   }
 
-  async function handleSave(e) {
-    e.preventDefault();
+  function validateClient() {
+    if (isManualQuotation) {
+      if (!form.manualClientName.trim()) {
+        showPopup("error", "Client Name Required", "Please enter client name.");
+        return false;
+      }
 
-    if (!selectedClient) {
-      alert("Please select a client");
-      return;
+      if (!form.manualClientAddress.trim()) {
+        showPopup(
+          "error",
+          "Client Address Required",
+          "Please enter client address."
+        );
+        return false;
+      }
+
+      return true;
     }
 
+    if (!selectedClient) {
+      showPopup("error", "Client Required", "Please select a client.");
+      return false;
+    }
+
+    return true;
+  }
+
+  function handlePreview(e) {
+    e.preventDefault();
+
+    if (!validateClient()) return;
+
+    setPreviewPopup(true);
+  }
+
+  async function handleSaveConfirmed() {
+    if (!validateClient()) return;
+
     setLoading(true);
+    setPreviewPopup(false);
 
     try {
       const finalDocumentNumber = await confirmAndIncrementDocumentNumber(
@@ -321,11 +428,12 @@ export default function CreateDocumentPage() {
       const documentData = {
         documentType: form.documentType,
         quotationMode: form.quotationMode,
+        clientMode: form.clientMode,
         documentNumber: finalDocumentNumber,
         date: form.date,
-        clientId: form.clientId,
+        clientId: isManualQuotation ? "" : form.clientId,
         placeOfSupply: form.placeOfSupply || "Karnataka",
-        clientSnapshot: selectedClient,
+        clientSnapshot: finalClient,
 
         items: calculation.items,
         subtotal: isOptionsQuotation ? 0 : calculation.subtotal,
@@ -352,7 +460,7 @@ export default function CreateDocumentPage() {
 
       await generateDocumentPDF({
         documentData,
-        client: selectedClient,
+        client: finalClient,
         settings,
       });
 
@@ -362,6 +470,9 @@ export default function CreateDocumentPage() {
       setForm({
         documentType: "Quotation",
         quotationMode: "total",
+        clientMode: "saved",
+        manualClientName: "",
+        manualClientAddress: "",
         documentNumber: "",
         date: new Date().toISOString().slice(0, 10),
         clientId: "",
@@ -377,20 +488,24 @@ export default function CreateDocumentPage() {
       });
     } catch (error) {
       console.error(error);
-      alert("Something went wrong while saving document");
+      showPopup(
+        "error",
+        "Save Failed",
+        "Something went wrong while saving document."
+      );
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div>
+    <div className="create-doc-page">
       <div className="card">
         <h1>Create Document</h1>
         <p>Create quotation, proforma invoice or invoice.</p>
       </div>
 
-      <form onSubmit={handleSave}>
+      <form onSubmit={handlePreview}>
         <div className="card">
           <h2>Document Details</h2>
 
@@ -452,64 +567,109 @@ export default function CreateDocumentPage() {
                 placeholder="Karnataka"
               />
             </div>
-
-            {isInvoice && (
-              <>
-                <div className="form-group">
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                      marginTop: "30px",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      name="enableAdvanceAmount"
-                      checked={form.enableAdvanceAmount}
-                      onChange={handleChange}
-                      style={{
-                        width: "16px",
-                        height: "16px",
-                      }}
-                    />
-                    Include Advance Amount
-                  </label>
-                </div>
-
-                {form.enableAdvanceAmount && (
-                  <div className="form-group">
-                    <label>Advance Amount</label>
-                    <input
-                      type="number"
-                      name="advanceAmount"
-                      value={form.advanceAmount}
-                      onChange={handleChange}
-                      placeholder="Example: 10000"
-                    />
-                  </div>
-                )}
-              </>
-            )}
-
-            <div className="form-group">
-              <label>Client</label>
-              <select
-                name="clientId"
-                value={form.clientId}
-                onChange={handleChange}
-                required
-              >
-                <option value="">Select Client</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.companyName || client.contactName}
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
+        </div>
+
+        <div className="card">
+          <h2>Client Details</h2>
+
+          {isQuotation && (
+            <div className="grid">
+              <div className="form-group">
+                <label>Client Entry Type</label>
+                <select
+                  name="clientMode"
+                  value={form.clientMode}
+                  onChange={handleChange}
+                >
+                  <option value="saved">Select Saved Client</option>
+                  <option value="manual">Manual Name & Address</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {isManualQuotation ? (
+            <>
+              <div className="grid">
+                <div className="form-group">
+                  <label>Client Name</label>
+                  <input
+                    name="manualClientName"
+                    value={form.manualClientName}
+                    onChange={handleChange}
+                    placeholder="Enter client name"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Client Address</label>
+                <textarea
+                  name="manualClientAddress"
+                  value={form.manualClientAddress}
+                  onChange={handleChange}
+                  placeholder="Enter client address"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="grid">
+              <div className="form-group">
+                <label>Client</label>
+                <select
+                  name="clientId"
+                  value={form.clientId}
+                  onChange={handleChange}
+                  required={!isManualQuotation}
+                >
+                  <option value="">Select Client</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.companyName || client.contactName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {isInvoice && (
+            <div className="grid">
+              <div className="form-group">
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    marginTop: "30px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    name="enableAdvanceAmount"
+                    checked={form.enableAdvanceAmount}
+                    onChange={handleChange}
+                    style={{ width: "16px", height: "16px" }}
+                  />
+                  Include Advance Amount
+                </label>
+              </div>
+
+              {form.enableAdvanceAmount && (
+                <div className="form-group">
+                  <label>Advance Amount</label>
+                  <input
+                    type="number"
+                    name="advanceAmount"
+                    value={form.advanceAmount}
+                    onChange={handleChange}
+                    placeholder="Example: 10000"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="card">
@@ -533,7 +693,9 @@ export default function CreateDocumentPage() {
             const quantity = Number(item.quantity || 0);
             const rate = Number(item.rate || 0);
             const optionDiscount = Number(item.optionDiscount || 0);
-            const optionAmount = Math.max(quantity * rate - optionDiscount, 0);
+            const optionAmount = roundAmount(
+              Math.max(quantity * rate - optionDiscount, 0)
+            );
 
             return (
               <div
@@ -667,9 +829,7 @@ export default function CreateDocumentPage() {
                   type="number"
                   name="discount"
                   value={
-                    form.discountPercent
-                      ? calculation.discount.toFixed(2)
-                      : form.discount
+                    form.discountPercent ? calculation.discount : form.discount
                   }
                   onChange={handleChange}
                   placeholder="Example: 1000"
@@ -777,7 +937,7 @@ export default function CreateDocumentPage() {
             <br />
 
             <button className="btn" disabled={loading}>
-              {loading ? "Saving & Downloading..." : "Save & Download PDF"}
+              {loading ? "Saving & Downloading..." : "Preview Document"}
             </button>
           </div>
         )}
@@ -785,11 +945,163 @@ export default function CreateDocumentPage() {
         {isOptionsQuotation && (
           <div className="card">
             <button className="btn" disabled={loading}>
-              {loading ? "Saving & Downloading..." : "Save & Download PDF"}
+              {loading ? "Saving & Downloading..." : "Preview Document"}
             </button>
           </div>
         )}
       </form>
+
+      {previewPopup && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: "760px" }}>
+            <h2>Preview Document</h2>
+
+            <div className="summary-box">
+              <div className="summary-line">
+                <span>Document Type</span>
+                <strong>{form.documentType}</strong>
+              </div>
+
+              <div className="summary-line">
+                <span>Document Number</span>
+                <strong>{form.documentNumber}</strong>
+              </div>
+
+              <div className="summary-line">
+                <span>Date</span>
+                <strong>{form.date}</strong>
+              </div>
+
+              <div className="summary-line">
+                <span>Client</span>
+                <strong>{getClientDisplayName()}</strong>
+              </div>
+
+              {isManualQuotation && (
+                <div className="summary-line">
+                  <span>Address</span>
+                  <strong>{form.manualClientAddress}</strong>
+                </div>
+              )}
+
+              <div className="summary-line">
+                <span>Place of Supply</span>
+                <strong>{form.placeOfSupply}</strong>
+              </div>
+            </div>
+
+            <br />
+
+            <h3>Items</h3>
+
+            <div style={{ overflowX: "auto" }}>
+              <table className="preview-table">
+                <thead>
+                  <tr>
+                    <th>Remark</th>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Rate</th>
+                    {isOptionsQuotation && <th>Discount</th>}
+                    {!isQuotation && <th>GST %</th>}
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {calculation.items.map((item, index) => (
+                    <tr key={index}>
+                      <td>{item.remark || "-"}</td>
+                      <td>{item.itemName}</td>
+                      <td>{item.quantity}</td>
+                      <td>Rs. {formatINR(item.rate)}</td>
+
+                      {isOptionsQuotation && (
+                        <td>Rs. {formatINR(item.optionDiscount || 0)}</td>
+                      )}
+
+                      {!isQuotation && <td>{item.gstPercent}%</td>}
+
+                      <td>Rs. {formatINR(item.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {!isOptionsQuotation && (
+              <>
+                <br />
+
+                <div className="summary-box">
+                  <div className="summary-line">
+                    <span>Subtotal</span>
+                    <strong>Rs. {formatINR(calculation.subtotal)}</strong>
+                  </div>
+
+                  <div className="summary-line">
+                    <span>Discount</span>
+                    <strong>Rs. {formatINR(calculation.discount)}</strong>
+                  </div>
+
+                  <div className="summary-line">
+                    <span>Base Total After Discount</span>
+                    <strong>
+                      Rs. {formatINR(calculation.baseTotalAfterDiscount)}
+                    </strong>
+                  </div>
+
+                  {!isQuotation && (
+                    <div className="summary-line">
+                      <span>GST</span>
+                      <strong>Rs. {formatINR(calculation.gstTotal)}</strong>
+                    </div>
+                  )}
+
+                  <div className="summary-line total">
+                    <span>Grand Total</span>
+                    <strong>Rs. {formatINR(calculation.grandTotal)}</strong>
+                  </div>
+
+                  {isInvoice && form.enableAdvanceAmount && (
+                    <>
+                      <div className="summary-line">
+                        <span>Advance Amount</span>
+                        <strong>Rs. {formatINR(advanceAmount)}</strong>
+                      </div>
+
+                      <div className="summary-line total">
+                        <span>Balance Amount</span>
+                        <strong>Rs. {formatINR(balanceAmount)}</strong>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setPreviewPopup(false)}
+                disabled={loading}
+              >
+                Edit
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                onClick={handleSaveConfirmed}
+                disabled={loading}
+              >
+                {loading ? "Saving & Downloading..." : "Confirm & Download PDF"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {successPopup && (
         <div className="modal-overlay">
@@ -832,6 +1144,31 @@ export default function CreateDocumentPage() {
                   setSavedDocumentNumber("");
                 }}
               >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {popup.show && (
+        <div className="modal-overlay">
+          <div className="modal-card modern-modal success-modal">
+            <div
+              className={
+                popup.type === "success"
+                  ? "modal-icon success-icon"
+                  : "modal-icon danger-icon"
+              }
+            >
+              {popup.type === "success" ? "✓" : "!"}
+            </div>
+
+            <h2>{popup.title}</h2>
+            <p>{popup.message}</p>
+
+            <div className="modal-actions center">
+              <button type="button" className="btn" onClick={closePopup}>
                 Close
               </button>
             </div>
