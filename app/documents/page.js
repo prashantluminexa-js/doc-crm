@@ -112,6 +112,15 @@ export default function DocumentsPage() {
     });
   }
 
+  function getDiscountPercent(item) {
+    return (
+      item?.discountPercent ||
+      item?.discountPercentage ||
+      item?.discount_percent ||
+      0
+    );
+  }
+
   const filteredDocuments = useMemo(() => {
     return documents.filter((item) => item.documentType === activeTab);
   }, [documents, activeTab]);
@@ -442,6 +451,11 @@ export default function DocumentsPage() {
                 <div className="summary-line">
                   <span>Discount</span>
                   <strong>₹ {formatINR(previewItem.discount || 0)}</strong>
+                </div>
+
+                <div className="summary-line">
+                  <span>Discount Percentage</span>
+                  <strong>{getDiscountPercent(previewItem)}%</strong>
                 </div>
 
                 <div className="summary-line">

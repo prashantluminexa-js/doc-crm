@@ -1577,3 +1577,83 @@ tbody tr:hover {
   }
 }
 
+/* =========================
+   CREATE DOCUMENT PAGE FIX
+========================= */
+
+.create-doc-page .grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.create-doc-page .form-group {
+  margin-bottom: 0;
+}
+
+.create-doc-page textarea {
+  width: 100%;
+}
+
+.create-doc-page .item-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.4fr 0.7fr 0.5fr 0.8fr 0.7fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.create-doc-page .option-item-row {
+  grid-template-columns: 1.1fr 1.3fr 0.7fr 0.5fr 0.75fr 0.75fr 0.85fr auto;
+}
+
+.create-doc-page .item-row .form-group {
+  margin-bottom: 0;
+}
+
+.create-doc-page .item-row input,
+.create-doc-page .item-row select {
+  min-height: 40px;
+}
+
+.create-doc-page .item-row .btn.danger {
+  height: 40px;
+  padding: 10px 13px;
+  white-space: nowrap;
+}
+
+.create-doc-page .summary-box {
+  max-width: 430px;
+  margin-left: auto;
+}
+
+@media (max-width: 1100px) {
+  .create-doc-page .grid {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+
+  .create-doc-page .item-row,
+  .create-doc-page .option-item-row {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+
+  .create-doc-page .item-row .btn.danger {
+    width: fit-content;
+  }
+}
+
+@media (max-width: 768px) {
+  .create-doc-page .grid,
+  .create-doc-page .item-row,
+  .create-doc-page .option-item-row {
+    grid-template-columns: 1fr;
+  }
+
+  .create-doc-page .summary-box {
+    max-width: 100%;
+  }
+
+  .create-doc-page .item-row .btn.danger {
+    width: 100%;
+  }
+}

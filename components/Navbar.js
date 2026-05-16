@@ -24,6 +24,7 @@ export default function Navbar() {
         <Link href="/">Dashboard</Link>
         <Link href="/clients">Clients</Link>
         <Link href="/documents">Documents</Link>
+        <Link href="/reports">Reports</Link>
         <Link href="/settings">Settings</Link>
         <button className="logout-btn" onClick={handleLogout}>
           Logout
